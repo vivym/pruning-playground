@@ -8,8 +8,9 @@ model:
     weight_decay: 0.00002
     norm_weight_decay: 0.0
     label_smoothing: 0.1
-    pruning_ratio: 0.5
-    pruning_masks_path: "datasets/pruning_masks_mobilenet_v2_0.5.pth"
+    pruning_ratio: 0.3
+    uniform_pruning: False
+    pruning_masks_path: "datasets/pruning_masks_mobilenet_v2_0.3.pth"
 
 trainer:
   max_epochs: 12
@@ -21,8 +22,8 @@ trainer:
       init_args:
         project: pruning-playground
         entity: viv
-        name: MobileNetv2-GFI-AP-0.3
-        notes: "MobileNet v2 GFI-AP 0.3"
+        name: MobileNetv2-GFI-AP
+        notes: "MobileNet v2 GFI-AP"
         tags: ["MobileNet v2", "GFI-AP"]
         save_code: True
   callbacks:

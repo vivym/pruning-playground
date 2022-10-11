@@ -46,8 +46,8 @@ def register_efficientnet(model):
                 if isinstance(b, MBConv):
                     for m in b.block:
                         if isinstance(m, Conv2dNormActivation):
-                            conv = block[0]
-                            assert isinstance(conv, nn.Conv2d)
+                            conv = m[0]
+                            assert isinstance(conv, nn.Conv2d), m
                             conv.register_forward_hook(partial(_after_hook, model, idx))
                             idx += 1
                 else:
@@ -182,6 +182,23 @@ def register_inception_v3(model):
     model._importance_scores = [None for _ in range(idx)]
 
 
+def register_densenet(model):
+    idx = 0
+    for m in [model.conv0]:
+        m.register_forward_hook(partial(_after_hook, model, idx))
+        idx += 1
+
+    for blocks in [model.denseblock1, model.denseblock2, model.denseblock3, model.denseblock4]:
+        for name, block in blocks.named_children():
+            assert name.startswith("denselayer")
+            for m in [block.conv1, block.conv2]:
+                m.register_forward_hook(partial(_after_hook, model, idx))
+                idx += 1
+
+    model._num_layers = idx
+    model._importance_scores = [None for _ in range(idx)]
+
+
 _HOOKS = {
     "resnet18": register_resnet_like,
     "resnet34": register_resnet_like,
@@ -204,6 +221,10 @@ _HOOKS = {
     "mobilenet_v3_small": register_mobilenet_v3,
     "mobilenet_v2": register_mobilenet_v2,
     "inception_v3": register_inception_v3,
+    "densenet121": register_densenet,
+    "densenet169": register_densenet,
+    "densenet201": register_densenet,
+    "densenet161": register_densenet,
 }
 
 

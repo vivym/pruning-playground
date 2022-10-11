@@ -2,13 +2,14 @@ model:
   class_path: pruning_playground.models.TorchvisionWrapper
   init_args:
     model_name: resnet50
-    pretrained: False
+    pretrained: True
     learning_rate: 0.001
     momentum: 0.9
     weight_decay: 0.00002
     norm_weight_decay: 0.0
     label_smoothing: 0.1
     pruning_ratio: 0.3
+    uniform_pruning: False
     pruning_masks_path: "datasets/pruning_masks_resnet50_0.3.pth"
 
 trainer:
@@ -21,8 +22,8 @@ trainer:
       init_args:
         project: pruning-playground
         entity: viv
-        name: ResNet50-GFI-AP-0.3
-        notes: "ResNet50 GFI-AP 0.3"
+        name: ResNet50-GFI-AP
+        notes: "ResNet50 GFI-AP"
         tags: ["ResNet50", "GFI-AP"]
         save_code: True
   callbacks:

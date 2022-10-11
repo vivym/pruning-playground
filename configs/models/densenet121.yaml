@@ -1,7 +1,7 @@
 model:
   class_path: pruning_playground.models.TorchvisionWrapper
   init_args:
-    model_name: inception_v3
+    model_name: densenet121
     pretrained: True
     learning_rate: 0.001
     momentum: 0.9
@@ -9,7 +9,8 @@ model:
     norm_weight_decay: 0.0
     label_smoothing: 0.1
     pruning_ratio: 0.3
-    pruning_masks_path: "datasets/pruning_masks_inception_v3_0.3.pth"
+    uniform_pruning: False
+    pruning_masks_path: "datasets/pruning_masks_densenet121_0.3.pth"
 
 trainer:
   max_epochs: 12
@@ -21,9 +22,9 @@ trainer:
       init_args:
         project: pruning-playground
         entity: viv
-        name: Inceptionv3-GFI-AP
-        notes: "Inception v3 GFI-AP"
-        tags: ["Inception v3", "GFI-AP"]
+        name: DenseNet121-GFI-AP
+        notes: "DenseNet121 GFI-AP"
+        tags: ["DenseNet121", "GFI-AP"]
         save_code: True
   callbacks:
     - class_path: RichProgressBar

@@ -2,6 +2,7 @@ import copy
 from typing import Optional
 
 import pytorch_lightning as pl
+import torch_pruning as tp
 import torch
 from torch.nn import functional as F
 
@@ -31,6 +32,12 @@ class TorchvisionWrapper(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()
 
+        load_gfi_ap_weights = False
+        if model_name == "resnet50_gfi_ap":
+            model_name = "resnet50"
+            pretrained = False
+            load_gfi_ap_weights = True
+
         assert hasattr(models, model_name)
 
         model_factory = getattr(models, model_name)
@@ -40,6 +47,19 @@ class TorchvisionWrapper(pl.LightningModule):
         else:
             weights = None
         self.model = model_factory(weights=weights)
+
+        if load_gfi_ap_weights:
+            for blocks in [self.model.layer1, self.model.layer2, self.model.layer3, self.model.layer4]:
+                for block in blocks:
+                    if block.conv2.stride == (2, 2):
+                        block.conv1.stride = (2, 2)
+                        block.conv2.stride = (1, 1)
+            state_dict = torch.load("datasets/best_epoch.ckpt", map_location="cpu")
+            state_dict = {
+                k[len("resnet.module."):]: v
+                for k, v in state_dict.items()
+            }
+            self.model.load_state_dict(state_dict)
 
         if pruning_stage:
             assert enable_pruning is False
@@ -53,6 +73,11 @@ class TorchvisionWrapper(pl.LightningModule):
             self.labels_list = []
 
         if enable_pruning:
+            dg = tp.DependencyGraph()
+            dg.build_dependency(
+                self.model, example_inputs=torch.randn(1, 3, 224, 224)
+            )
+
             if not uniform_pruning:
                 assert pruning_masks_path is not None
             register = get_pruning_register(model_name)
@@ -65,8 +90,11 @@ class TorchvisionWrapper(pl.LightningModule):
                 pruning_masks = None
 
             print("Pruning...")
+            self.model = tp.helpers.gconv2convs(self.model)
             register(
-                self.model, pruning_masks, pruning_ratio if uniform_pruning else None
+                self.model, pruning_masks,
+                pruning_ratio if uniform_pruning else 0.0,
+                dg,
             )
 
         self.learning_rate = learning_rate
@@ -85,6 +113,11 @@ class TorchvisionWrapper(pl.LightningModule):
         outputs = self.forward(images)
 
         if self.pruning_stage:
+            # torch.save(
+            #     (self.model._importance_scores, labels),
+            #     f"datasets/resnet50_scores/{len(self.scores_list):08d}.pth",
+            # )
+            # self.scores_list.append(0)
             self.scores_list.append(
                 copy.copy(self.model._importance_scores)
             )

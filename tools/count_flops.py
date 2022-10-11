@@ -2,6 +2,7 @@ import argparse
 
 import yaml
 import torch
+import torch_pruning as tp
 from pytorch_lightning.cli import instantiate_class
 
 from pruning_playground.utils.flops import count_flops
@@ -22,9 +23,20 @@ def main():
         model_config["init_args"]["enable_pruning"] = True
     model = instantiate_class((), model_config)
 
+    print(model)
+    # print(model.model.features[0])
+
     count_flops(
-        model, torch.randn(1, 3, 224, 223),
-        ignore_layers=["model_fc", "model_avgpool"]
+        model.model, torch.randn(1, 3, 224, 224),
+        ignore_layers=[
+            "fc", "avgpool", "classifier_1",
+        ],
+        verbose=False,
+    )
+    print(
+        "Params",
+        tp.utils.count_params(model.model),
+        f"{tp.utils.count_params(model) / 1e6:.2f}MB",
     )
 
 
