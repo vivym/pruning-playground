@@ -24,7 +24,7 @@ class TorchvisionWrapper(pl.LightningModule):
         weight_decay: float = 0.0,
         norm_weight_decay: float = 0.0,
         label_smoothing: float = 0.0,
-        score_stage: bool = False,
+        pruning_stage: bool = False,
         pruning_strategy: str = "None", # CustomIndices, Random
         pruning_ratio: float = 0.3,
         pruning_indices_path: Optional[str] = "datasets/pruning_indices.pth",
@@ -61,7 +61,7 @@ class TorchvisionWrapper(pl.LightningModule):
             }
             self.model.load_state_dict(state_dict)
 
-        if score_stage:
+        if pruning_stage:
             assert pruning_strategy == "None"
 
             module_iter = get_module_iter(model_name, self.model)
@@ -98,7 +98,7 @@ class TorchvisionWrapper(pl.LightningModule):
         self.weight_decay = weight_decay
         self.norm_weight_decay = norm_weight_decay
         self.label_smoothing = label_smoothing
-        self.score_stage = score_stage
+        self.pruning_stage = pruning_stage
         self.pruning_strategy = pruning_strategy
         self.pruning_ratio = pruning_ratio
         self.pruning_indices_path = pruning_indices_path
@@ -108,7 +108,7 @@ class TorchvisionWrapper(pl.LightningModule):
 
         outputs = self.forward(images)
 
-        if self.score_stage:
+        if self.pruning_stage:
             self.scores_list.append(
                 copy.copy(self.model._importance_scores)
             )
@@ -124,7 +124,7 @@ class TorchvisionWrapper(pl.LightningModule):
         return loss, acc1, acc5
 
     def training_step(self, batch, batch_idx: int):
-        assert self.score_stage is False
+        assert self.pruning_stage is False
 
         loss, acc1, acc5 = self._training_and_validation_step(batch, batch)
 
@@ -162,7 +162,7 @@ class TorchvisionWrapper(pl.LightningModule):
         return loss
 
     def validation_epoch_end(self, batch):
-        if self.score_stage:
+        if self.pruning_stage:
             scores_list = [
                 torch.cat(scores, dim=0)
                 for scores in list(zip(*self.scores_list))
