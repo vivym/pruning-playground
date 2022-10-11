@@ -11,7 +11,11 @@ from pruning_playground.utils.flops import count_flops
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--config", type=str, required=True)
-    parser.add_argument("--pruned", action="store_true")
+    parser.add_argument(
+        "--pruning-strategy", type=str, default=None # CustomIndices, Random
+    )
+    parser.add_argument("--pruning-ratio", type=float, default=None)
+    parser.add_argument("--pruning-indices-path", type=str, default=None)
     args = parser.parse_args()
 
     with open(args.config) as f:
@@ -19,18 +23,19 @@ def main():
     assert "model" in config
     model_config = config["model"]
 
-    if args.pruned:
-        model_config["init_args"]["enable_pruning"] = True
+    if args.pruning_strategy is not None:
+        model_config["init_args"]["pruning_strategy"] = args.pruning_strategy
+    if args.pruning_ratio is not None:
+        model_config["init_args"]["pruning_ratio"] = args.pruning_ratio
+    if args.pruning_indices_path is not None:
+        model_config["init_args"]["pruning_indices_path"] = args.pruning_indices_path
     model = instantiate_class((), model_config)
 
     print(model)
-    # print(model.model.features[0])
 
     count_flops(
         model.model, torch.randn(1, 3, 224, 224),
-        ignore_layers=[
-            "fc", "avgpool", "classifier_1",
-        ],
+        # ignore_layers=["fc", "avgpool", "classifier_1"],
         verbose=False,
     )
     print(

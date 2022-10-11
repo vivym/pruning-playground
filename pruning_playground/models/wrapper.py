@@ -1,5 +1,5 @@
 import copy
-from typing import Optional
+from typing import Optional, List, Tuple
 
 import pytorch_lightning as pl
 import torch_pruning as tp
@@ -9,8 +9,9 @@ from torch.nn import functional as F
 from torchvision import models
 
 from pruning_playground.metrics import accuracy
-from .importance_score_hooks import get_hook_register
-from .pruning import get_pruning_register
+from pruning_playground.prune import (
+    get_module_iter, prune, install_importance_score_hooks
+)
 
 
 class TorchvisionWrapper(pl.LightningModule):
@@ -23,11 +24,10 @@ class TorchvisionWrapper(pl.LightningModule):
         weight_decay: float = 0.0,
         norm_weight_decay: float = 0.0,
         label_smoothing: float = 0.0,
-        pruning_stage: bool = False,
-        pruning_ratio: float = 0.5,
-        enable_pruning: bool = False,
-        uniform_pruning: bool = False,
-        pruning_masks_path: Optional[str] = "datasets/pruning_masks.pth",
+        score_stage: bool = False,
+        pruning_strategy: str = "None", # CustomIndices, Random
+        pruning_ratio: float = 0.3,
+        pruning_indices_path: Optional[str] = "datasets/pruning_indices.pth",
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -61,40 +61,36 @@ class TorchvisionWrapper(pl.LightningModule):
             }
             self.model.load_state_dict(state_dict)
 
-        if pruning_stage:
-            assert enable_pruning is False
-            register = get_hook_register(model_name)
-            if register is None:
-                raise NotImplemented(model_name)
-            print("Registering Importance Score Hooks...")
-            register(self.model)
+        if score_stage:
+            assert pruning_strategy == "None"
+
+            module_iter = get_module_iter(model_name, self.model)
+            install_importance_score_hooks(self.model, module_iter)
 
             self.scores_list = []
             self.labels_list = []
 
-        if enable_pruning:
+        if pruning_strategy != "None":
+            self.model = tp.helpers.gconv2convs(self.model)
+
             dg = tp.DependencyGraph()
             dg.build_dependency(
                 self.model, example_inputs=torch.randn(1, 3, 224, 224)
             )
 
-            if not uniform_pruning:
-                assert pruning_masks_path is not None
-            register = get_pruning_register(model_name)
-            if register is None:
-                raise NotImplemented(model_name)
-
-            if not uniform_pruning:
-                pruning_masks = torch.load(pruning_masks_path)
+            if pruning_indices_path is not None:
+                pruning_indices = torch.load(
+                    pruning_indices_path, map_location="cpu"
+                )
             else:
-                pruning_masks = None
+                pruning_indices = None
 
-            print("Pruning...")
-            self.model = tp.helpers.gconv2convs(self.model)
-            register(
-                self.model, pruning_masks,
-                pruning_ratio if uniform_pruning else 0.0,
-                dg,
+            module_iter = get_module_iter(model_name, self.model)
+            self.model = prune(
+                self.model, module_iter,
+                pruning_strategy=pruning_strategy,
+                pruning_indices=pruning_indices,
+                pruning_ratio=pruning_ratio,
             )
 
         self.learning_rate = learning_rate
@@ -102,22 +98,17 @@ class TorchvisionWrapper(pl.LightningModule):
         self.weight_decay = weight_decay
         self.norm_weight_decay = norm_weight_decay
         self.label_smoothing = label_smoothing
-        self.pruning_stage = pruning_stage
+        self.score_stage = score_stage
+        self.pruning_strategy = pruning_strategy
         self.pruning_ratio = pruning_ratio
-        self.enable_pruning = enable_pruning
-        self.pruning_masks_path = pruning_masks_path
+        self.pruning_indices_path = pruning_indices_path
 
     def _training_and_validation_step(self, batch, batch_idx: int):
         images, labels = batch
 
         outputs = self.forward(images)
 
-        if self.pruning_stage:
-            # torch.save(
-            #     (self.model._importance_scores, labels),
-            #     f"datasets/resnet50_scores/{len(self.scores_list):08d}.pth",
-            # )
-            # self.scores_list.append(0)
+        if self.score_stage:
             self.scores_list.append(
                 copy.copy(self.model._importance_scores)
             )
@@ -133,7 +124,7 @@ class TorchvisionWrapper(pl.LightningModule):
         return loss, acc1, acc5
 
     def training_step(self, batch, batch_idx: int):
-        assert self.pruning_stage is False
+        assert self.score_stage is False
 
         loss, acc1, acc5 = self._training_and_validation_step(batch, batch)
 
@@ -171,7 +162,7 @@ class TorchvisionWrapper(pl.LightningModule):
         return loss
 
     def validation_epoch_end(self, batch):
-        if self.pruning_stage:
+        if self.score_stage:
             scores_list = [
                 torch.cat(scores, dim=0)
                 for scores in list(zip(*self.scores_list))
@@ -206,20 +197,96 @@ class TorchvisionWrapper(pl.LightningModule):
             print("num_pruned_filters", num_pruned_filters)
             print("threshold", kth_value)
 
-            if self.pruning_masks_path is not None:
-                pruning_masks = [
-                    (scores > kth_value).cpu()
+            if self.pruning_indices_path is not None:
+                pruning_indices = [
+                    (scores <= kth_value).nonzero(as_tuple=True)[0].tolist()
                     for scores in scores_list
                 ]
-                torch.save(pruning_masks, self.pruning_masks_path)
+                torch.save(pruning_indices, self.pruning_indices_path)
 
     def forward(self, x):
         return self.model(x)
 
     def configure_optimizers(self):
-        return torch.optim.SGD(
-            filter(lambda p: p.requires_grad, self.parameters()),
+        parameters = set_weight_decay(
+            model=self,
+            weight_decay=self.weight_decay,
+            norm_weight_decay=self.norm_weight_decay,
+        )
+        optimizer = torch.optim.SGD(
+            parameters,
             lr=self.learning_rate,
             momentum=self.momentum,
             weight_decay=self.weight_decay,
         )
+        lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=30
+        )
+
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": lr_scheduler,
+        }
+
+
+def set_weight_decay(
+    model: torch.nn.Module,
+    weight_decay: float,
+    norm_weight_decay: Optional[float] = None,
+    norm_classes: Optional[List[type]] = None,
+    custom_keys_weight_decay: Optional[List[Tuple[str, float]]] = None,
+):
+    if not norm_classes:
+        norm_classes = [
+            torch.nn.modules.batchnorm._BatchNorm,
+            torch.nn.LayerNorm,
+            torch.nn.GroupNorm,
+            torch.nn.modules.instancenorm._InstanceNorm,
+            torch.nn.LocalResponseNorm,
+        ]
+    norm_classes = tuple(norm_classes)
+
+    params = {
+        "other": [],
+        "norm": [],
+    }
+    params_weight_decay = {
+        "other": weight_decay,
+        "norm": norm_weight_decay,
+    }
+    custom_keys = []
+    if custom_keys_weight_decay is not None:
+        for key, weight_decay in custom_keys_weight_decay:
+            params[key] = []
+            params_weight_decay[key] = weight_decay
+            custom_keys.append(key)
+
+    def _add_params(module, prefix=""):
+        for name, p in module.named_parameters(recurse=False):
+            if not p.requires_grad:
+                continue
+            is_custom_key = False
+            for key in custom_keys:
+                target_name = f"{prefix}.{name}" if prefix != "" and "." in key else name
+                if key == target_name:
+                    params[key].append(p)
+                    is_custom_key = True
+                    break
+            if not is_custom_key:
+                if norm_weight_decay is not None and isinstance(module, norm_classes):
+                    params["norm"].append(p)
+                else:
+                    params["other"].append(p)
+
+        for child_name, child_module in module.named_children():
+            child_prefix = f"{prefix}.{child_name}" if prefix != "" else child_name
+            _add_params(child_module, prefix=child_prefix)
+
+    _add_params(model)
+
+    param_groups = []
+    for key in params:
+        if len(params[key]) > 0:
+            param_groups.append({"params": params[key], "weight_decay": params_weight_decay[key]})
+
+    return param_groups
