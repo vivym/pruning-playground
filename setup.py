@@ -56,5 +56,10 @@ if __name__ == "__main__":
         zip_safe=False,
         python_requires=">=3.9",
         install_requires=[
-        ],
+            "pytorch_lightning",
+            "jsonargparse[signatures]",
+            "wandb",
+            "rich",
+            "thop",
+         ],
     )
