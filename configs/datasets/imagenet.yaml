@@ -1,0 +1,13 @@
+data:
+  class_path: pruning_playground.data.datasets.ImageNet
+  init_args:
+    root_path: datasets/imagenet
+    train_batch_size: 512
+    val_batch_size: 512
+    num_workers: 32
+    mixup_alpha: 0.2
+    cutmix_alpha: 1.0
+    train_crop_size: 176
+    val_resize_size: 232
+    auto_augment_policy: ta_wide
+    random_erase_prob: 0.1
