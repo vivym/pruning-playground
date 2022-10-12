@@ -2,6 +2,7 @@ import argparse
 
 import yaml
 import torch
+import pandas as pd
 import torch_pruning as tp
 from pytorch_lightning.cli import instantiate_class
 
@@ -33,7 +34,7 @@ def main():
 
     print(model)
 
-    count_flops(
+    _, all_data = count_flops(
         model.model, torch.randn(1, 3, 224, 224),
         # ignore_layers=["fc", "avgpool", "classifier_1"],
         verbose=True,
@@ -43,6 +44,9 @@ def main():
         tp.utils.count_params(model.model),
         f"{tp.utils.count_params(model) / 1e6:.2f}MB",
     )
+
+    df = pd.DataFrame(all_data, columns=["Operation", "OPS", "#Params", "#Filters"])
+    df.to_excel("datasets/flops.xlsx")
 
 
 if __name__ == "__main__":
