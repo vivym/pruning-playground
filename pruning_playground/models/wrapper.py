@@ -3,6 +3,7 @@ from typing import Optional, List, Tuple
 
 import pytorch_lightning as pl
 import torch_pruning as tp
+import pandas as pd
 import torch
 from torch.nn import functional as F
 
@@ -185,6 +186,17 @@ class TorchvisionWrapper(pl.LightningModule):
                 ], dim=0)
                 scores = scores.max(0)[0]
                 scores_list.append(scores)
+
+            torch.save((scores_list, labels), "datasets/importance_scores.pth")
+
+            max_rows = max(map(lambda x: x.shape[0], scores_list))
+
+            df = pd.DataFrame(index=range(max_rows))
+            for idx, layer_scores in enumerate(scores_list):
+                layer_scores = layer_scores.cpu().numpy()
+                df[f"Layer {idx + 1}"] = pd.Series(layer_scores)
+
+            df.to_excel(excel_writer="datasets/importance_scores.xlsx")
 
             scores = torch.cat(scores_list, dim=0)
             total_filters = scores.shape[0]

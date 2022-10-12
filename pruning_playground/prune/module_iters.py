@@ -27,6 +27,8 @@ def get_module_iter(model_name, model):
 @register_module_iter("wide_resnet50_2")
 @register_module_iter("wide_resnet101_2")
 def resnet_module_iter(model: nn.Module):
+    from torchvision.models.resnet import BasicBlock, Bottleneck
+
     idx = 0
     for m in [model.conv1]:
         yield idx, m
@@ -34,9 +36,16 @@ def resnet_module_iter(model: nn.Module):
 
     for blocks in [model.layer1, model.layer2, model.layer3, model.layer4]:
         for block in blocks:
-            for m in [block.conv1, block.conv2]:
-                yield idx, m
-                idx += 1
+            if isinstance(block, BasicBlock):
+                for m in [block.conv1]:
+                    yield idx, m
+                    idx += 1
+            elif isinstance(block, Bottleneck):
+                for m in [block.conv1, block.conv2]:
+                    yield idx, m
+                    idx += 1
+            else:
+                raise NotImplementedError(block)
 
 
 @register_module_iter("efficientnet_b0")
