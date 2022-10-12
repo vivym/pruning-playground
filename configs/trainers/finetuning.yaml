@@ -1,0 +1,23 @@
+trainer:
+  max_epochs: 30
+  accelerator: "gpu"
+  devices: 1
+
+  callbacks:
+    - class_path: RichProgressBar
+      init_args:
+        leave: True
+    - class_path: ModelCheckpoint
+      init_args:
+        filename: "epoch_{epoch:03d}_acc1_{val/acc1:.02f}"
+        auto_insert_metric_name: False
+        save_top_k: -1
+        every_n_epochs: 1
+    - class_path: RichModelSummary
+      init_args:
+        max_depth: 2
+    - LearningRateMonitor
+
+  default_root_dir: wandb
+
+seed_everything: 23333

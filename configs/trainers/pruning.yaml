@@ -1,0 +1,18 @@
+trainer:
+  max_epochs: 30
+  accelerator: "gpu"
+  devices: 1
+
+  logger: False
+
+  callbacks:
+    - class_path: RichProgressBar
+      init_args:
+        leave: True
+    - class_path: RichModelSummary
+      init_args:
+        max_depth: 2
+
+  default_root_dir: wandb
+
+seed_everything: 23333
