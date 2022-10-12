@@ -16,7 +16,7 @@ trainer:
     - class_path: pruning_playground.utils.logger.WandbLogger
       init_args:
         project: pruning-playground
-        entity: viv
+        entity: ziyuan_c
         name: DenseNet121-GFI-AP
         notes: "DenseNet121 GFI-AP"
         tags: ["DenseNet121", "GFI-AP"]

@@ -16,7 +16,7 @@ trainer:
     - class_path: pruning_playground.utils.logger.WandbLogger
       init_args:
         project: pruning-playground
-        entity: viv
+        entity: ziyuan_c
         name: ResNet50-GFI-AP
         notes: "ResNet50 GFI-AP"
         tags: ["ResNet50", "GFI-AP"]

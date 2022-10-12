@@ -16,7 +16,7 @@ trainer:
     - class_path: pruning_playground.utils.logger.WandbLogger
       init_args:
         project: pruning-playground
-        entity: viv
+        entity: ziyuan_c
         name: MobileNet-v2-GFI-AP
         notes: "MobileNet-v2 GFI-AP"
         tags: ["MobileNet-v2", "GFI-AP"]

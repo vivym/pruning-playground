@@ -16,7 +16,7 @@ trainer:
     - class_path: RichModelSummary
       init_args:
         max_depth: 2
-    - LearningRateMonitor
+    # - LearningRateMonitor
 
   default_root_dir: wandb
 

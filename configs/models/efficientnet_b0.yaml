@@ -16,7 +16,7 @@ trainer:
     - class_path: pruning_playground.utils.logger.WandbLogger
       init_args:
         project: pruning-playground
-        entity: viv
+        entity: ziyuan_c
         name: EfficientNet-b0-GFI-AP
         notes: "EfficientNet-b0 GFI-AP"
         tags: ["EfficientNet-b0", "GFI-AP"]
