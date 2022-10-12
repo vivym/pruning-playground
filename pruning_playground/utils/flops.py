@@ -6,7 +6,7 @@ import torch.fx
 import torch.nn as nn
 
 
-def print_table(rows, header=['Operation', 'OPS', 'Params']):
+def print_table(rows, header=['Operation', 'OPS']):
     r"""Simple helper function to print a list of lists as a table
     :param rows: a :class:`list` of :class:`list` containing the data to be printed. Each entry in the list
     represents an individual row
@@ -79,11 +79,12 @@ def _count_convNd(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: D
 
     total_ops = overall_conv_flops + bias_ops
 
-    total_params = module.weight.numel()
-    if module.bias is not None:
-        total_params += module.bias.numel()
+    # total_params = module.weight.numel()
+    # if module.bias is not None:
+    #     total_params += module.bias.numel()
+    num_channels = output.shape[1]
 
-    return total_ops, total_params
+    return total_ops, num_channels
 
 
 def _count_relu(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: Dict[str, Any]) -> int:
@@ -94,7 +95,7 @@ def _count_relu(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: Dic
     :rtype: `int`
     """
     total_ops = 2 * output.numel()  # also count the comparison
-    return total_ops, 0
+    return total_ops, output.shape[1]
 
 
 def _count_avgpool(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: Dict[str, Any]) -> int:
@@ -111,7 +112,7 @@ def _count_avgpool(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: 
     ops_add = reduce(lambda x, y: x * y, kernel_size) - 1
     ops_div = 1
     total_ops = (ops_add + ops_div) * out_ops
-    return total_ops, 0
+    return total_ops, output.shape[1]
 
 
 def _count_globalavgpool(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: Dict[str, Any]) -> int:
@@ -125,7 +126,7 @@ def _count_globalavgpool(module: Any, output: torch.Tensor, args: Tuple[Any], kw
     ops_add = reduce(lambda x, y: x * y, [inp.shape[-2], inp.shape[-1]]) - 1
     ops_div = 1
     total_ops = (ops_add + ops_div) * output.numel()
-    return total_ops, 0
+    return total_ops, output.shape[1]
 
 
 def _count_maxpool(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: Dict[str, Any]) -> int:
@@ -140,7 +141,7 @@ def _count_maxpool(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: 
         (output.dim() - 2) if isinstance(module.kernel_size, int) else module.kernel_size
     ops_add = reduce(lambda x, y: x * y, kernel_size) - 1
     total_ops = ops_add * out_ops
-    return total_ops, 0
+    return total_ops, output.shape[1]
 
 
 def _count_bn(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: Dict[str, Any]) -> int:
@@ -150,7 +151,7 @@ def _count_bn(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: Dict[
     :rtype: `int`
     """
     total_ops = output.numel() * 2
-    return total_ops, 0
+    return total_ops, output.shape[1]
 
 
 def _count_linear(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: Dict[str, Any]) -> int:
@@ -167,11 +168,8 @@ def _count_linear(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: D
             bias_params = module.bias.numel()
     total_ops = args[0].numel() * output.shape[-1] + bias_ops
 
-    if not isinstance(module, nn.Linear):
-        total_params = 0
-    else:
-        total_params = module.weight.numel() + bias_params
-    return total_ops, total_params
+    num_channels = output.shape[1]
+    return total_ops, num_channels
 
 
 def _count_add_mul(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: Dict[str, Any]) -> int:
@@ -180,7 +178,7 @@ def _count_add_mul(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: 
     :return: number of FLOPs
     :rtype: `int`
     """
-    return output.numel() * len(args), 0
+    return output.numel() * len(args), output.shape[1]
 
 
 def _undefined_op(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: Dict[str, Any]) -> int:
@@ -189,7 +187,7 @@ def _undefined_op(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: D
     :return: always 0
     :rtype: `int`
     """
-    return 0, 0
+    return 0, output.shape[1]
 
 
 def count_operations(module: Any) -> Any:
@@ -223,12 +221,13 @@ class ProfilingInterpreter(torch.fx.Interpreter):
         self.custom_ops = custom_ops
 
         self.flops: Dict[torch.fx.Node, float] = {}
+        self.num_channels: Dict[torch.fx.Node, int] = {}
         self.parameters: Dict[torch.fx.Node, float] = {}
 
     def run_node(self, n: torch.fx.Node) -> Any:
         return_val = super().run_node(n)
         if isinstance(return_val, Tuple):
-            self.flops[n] = return_val[1][0]
+            self.flops[n], self.num_channels[n] = return_val[1]
             self.parameters[n] = return_val[2]
             return_val = return_val[0]
 
@@ -290,27 +289,31 @@ def count_flops(model: torch.nn.Module,
     tracer.run(input)
 
     ops = 0
+    num_channels = 0
     params = 0
     all_data = []
 
     for name, current_ops in tracer.flops.items():
+        current_channels = tracer.num_channels[name]
         current_params = tracer.parameters[name]
         model_status = model.training
+
+        num_channels += current_channels
 
         if any(name.name == ign_name for ign_name in ignore_layers):
             continue
 
         ops += current_ops
-        params += current_params
 
         if current_ops and verbose:
-            all_data.append(['{}'.format(name), current_ops, current_params])
+            all_data.append(['{}'.format(name), current_ops, current_params, current_channels])
 
     if print_readable:
         if verbose:
-            print_table(all_data)
+            print_table(all_data, header=["Operation", "OPS", "#Params", "#Filters"])
         print("Input size: {0}".format(tuple(input.shape)))
         print("{:,} FLOPs or approx. {:,.2f} GFLOPs".format(ops, ops / 1e+9))
+        print("Total Channels:", num_channels)
 
     if model_status:
         model.train()
