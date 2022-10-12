@@ -84,7 +84,7 @@ def _count_convNd(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: D
     #     total_params += module.bias.numel()
     num_channels = output.shape[1]
 
-    return total_ops, num_channels
+    return total_ops, num_channels, "conv"
 
 
 def _count_relu(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: Dict[str, Any]) -> int:
@@ -95,7 +95,7 @@ def _count_relu(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: Dic
     :rtype: `int`
     """
     total_ops = 2 * output.numel()  # also count the comparison
-    return total_ops, output.shape[1]
+    return total_ops, output.shape[1], "relu"
 
 
 def _count_avgpool(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: Dict[str, Any]) -> int:
@@ -112,7 +112,7 @@ def _count_avgpool(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: 
     ops_add = reduce(lambda x, y: x * y, kernel_size) - 1
     ops_div = 1
     total_ops = (ops_add + ops_div) * out_ops
-    return total_ops, output.shape[1]
+    return total_ops, output.shape[1], "avgpool"
 
 
 def _count_globalavgpool(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: Dict[str, Any]) -> int:
@@ -126,7 +126,7 @@ def _count_globalavgpool(module: Any, output: torch.Tensor, args: Tuple[Any], kw
     ops_add = reduce(lambda x, y: x * y, [inp.shape[-2], inp.shape[-1]]) - 1
     ops_div = 1
     total_ops = (ops_add + ops_div) * output.numel()
-    return total_ops, output.shape[1]
+    return total_ops, output.shape[1], "globalavgpool"
 
 
 def _count_maxpool(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: Dict[str, Any]) -> int:
@@ -141,7 +141,7 @@ def _count_maxpool(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: 
         (output.dim() - 2) if isinstance(module.kernel_size, int) else module.kernel_size
     ops_add = reduce(lambda x, y: x * y, kernel_size) - 1
     total_ops = ops_add * out_ops
-    return total_ops, output.shape[1]
+    return total_ops, output.shape[1], "maxpool"
 
 
 def _count_bn(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: Dict[str, Any]) -> int:
@@ -151,7 +151,7 @@ def _count_bn(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: Dict[
     :rtype: `int`
     """
     total_ops = output.numel() * 2
-    return total_ops, output.shape[1]
+    return total_ops, output.shape[1], "bn"
 
 
 def _count_linear(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: Dict[str, Any]) -> int:
@@ -169,7 +169,7 @@ def _count_linear(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: D
     total_ops = args[0].numel() * output.shape[-1] + bias_ops
 
     num_channels = output.shape[1]
-    return total_ops, num_channels
+    return total_ops, num_channels, "linear"
 
 
 def _count_add_mul(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: Dict[str, Any]) -> int:
@@ -178,7 +178,7 @@ def _count_add_mul(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: 
     :return: number of FLOPs
     :rtype: `int`
     """
-    return output.numel() * len(args), output.shape[1]
+    return output.numel() * len(args), output.shape[1], "add_mul"
 
 
 def _undefined_op(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: Dict[str, Any]) -> int:
@@ -187,7 +187,7 @@ def _undefined_op(module: Any, output: torch.Tensor, args: Tuple[Any], kwargs: D
     :return: always 0
     :rtype: `int`
     """
-    return 0, output.shape[1]
+    return 0, output.shape[1], "undefined"
 
 
 def count_operations(module: Any) -> Any:
@@ -222,12 +222,13 @@ class ProfilingInterpreter(torch.fx.Interpreter):
 
         self.flops: Dict[torch.fx.Node, float] = {}
         self.num_channels: Dict[torch.fx.Node, int] = {}
+        self.module_types: Dict[torch.fx.Node, str] = {}
         self.parameters: Dict[torch.fx.Node, float] = {}
 
     def run_node(self, n: torch.fx.Node) -> Any:
         return_val = super().run_node(n)
         if isinstance(return_val, Tuple):
-            self.flops[n], self.num_channels[n] = return_val[1]
+            self.flops[n], self.num_channels[n], self.module_types[n] = return_val[1]
             self.parameters[n] = return_val[2]
             return_val = return_val[0]
 
@@ -296,6 +297,7 @@ def count_flops(model: torch.nn.Module,
     for name, current_ops in tracer.flops.items():
         current_channels = tracer.num_channels[name]
         current_params = tracer.parameters[name]
+        current_type = tracer.module_types[name]
         model_status = model.training
 
         num_channels += current_channels
@@ -305,7 +307,7 @@ def count_flops(model: torch.nn.Module,
 
         ops += current_ops
 
-        if current_ops and verbose:
+        if current_ops and verbose and current_type == "conv":
             all_data.append(['{}'.format(name), current_ops, current_params, current_channels])
 
     if print_readable:
