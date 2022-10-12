@@ -11,7 +11,9 @@ from torchvision import models
 
 from pruning_playground.metrics import accuracy
 from pruning_playground.prune import (
-    get_module_iter, prune, install_importance_score_hooks
+    get_module_iter, prune, install_importance_score_hooks,
+    calculate_importance_scores_correct,
+    calculate_importance_scores_wrong,
 )
 
 
@@ -26,6 +28,7 @@ class TorchvisionWrapper(pl.LightningModule):
         norm_weight_decay: float = 0.0,
         label_smoothing: float = 0.0,
         pruning_stage: bool = False,
+        use_correct_scores: bool = False,   # correct scores: from paper; wrong scores: from code
         pruning_strategy: str = "None", # CustomIndices, Random
         pruning_ratio: float = 0.3,
         pruning_indices_path: Optional[str] = "datasets/pruning_indices.pth",
@@ -100,6 +103,7 @@ class TorchvisionWrapper(pl.LightningModule):
         self.norm_weight_decay = norm_weight_decay
         self.label_smoothing = label_smoothing
         self.pruning_stage = pruning_stage
+        self.use_correct_scores = use_correct_scores
         self.pruning_strategy = pruning_strategy
         self.pruning_ratio = pruning_ratio
         self.pruning_indices_path = pruning_indices_path
@@ -110,10 +114,36 @@ class TorchvisionWrapper(pl.LightningModule):
         outputs = self.forward(images)
 
         if self.pruning_stage:
-            self.scores_list.append(
-                copy.copy(self.model._importance_scores)
+            if self.use_correct_scores:
+                self.scores_list.append(
+                    copy.copy(self.model._importance_scores)
+                )
+                self.labels_list.append(labels)
+
+            else:
+                if len(self.scores_list) == 0:
+                    self.scores_list = [
+                        torch.zeros(
+                            1000, *features.shape[1:],
+                            dtype=features.dtype, device=features.device,
+                        )
+                        for features in self.model._features
+                    ]
+
+                for scores, features in zip(self.scores_list, self.model._features):
+                    scores.scatter_reduce_(
+                        0,
+                        index=labels[:, None, None, None].expand_as(features),
+                        src=features,
+                        reduce="mean",
+                    )
+
+            self.model._features = list(
+                map(lambda _: None, self.model._features)
             )
-            self.labels_list.append(labels)
+            self.model._importance_scores = list(
+                map(lambda _: None, self.model._importance_scores)
+            )
 
         loss = F.cross_entropy(
             outputs, labels,
@@ -160,40 +190,22 @@ class TorchvisionWrapper(pl.LightningModule):
             on_step=True, on_epoch=True, prog_bar=True,
         )
 
-        return loss
-
     def validation_epoch_end(self, batch):
         if self.pruning_stage:
-            scores_list = [
-                torch.cat(scores, dim=0)
-                for scores in list(zip(*self.scores_list))
-            ]
-            labels = torch.cat(self.labels_list, dim=0)
-
-            num_layers = len(scores_list)
-
-            scores_list_per_class = []
-            for c in range(1000):
-                mask = labels == c
-                assert mask.sum().item() > 0
-                scores_list_per_class.append([scores[mask].mean(0) for scores in scores_list])
-
-            scores_list = []
-            for layer_idx in range(num_layers):
-                scores = torch.stack([
-                    scores_list_per_class[c][layer_idx]
-                    for c in range(1000)
-                ], dim=0)
-                scores = scores.max(0)[0]
-                scores_list.append(scores)
-
-            torch.save((scores_list, labels), "datasets/importance_scores.pth")
+            if self.use_correct_scores:
+                scores_list = calculate_importance_scores_correct(
+                    self.scores_list, self.labels_list
+                )
+            else:
+                scores_list = calculate_importance_scores_wrong(
+                    self.scores_list
+                )
 
             max_rows = max(map(lambda x: x.shape[0], scores_list))
 
             df = pd.DataFrame(index=range(max_rows))
             for idx, layer_scores in enumerate(scores_list):
-                layer_scores = layer_scores.cpu().numpy()
+                layer_scores = layer_scores.sort(descending=True)[0].cpu().numpy()
                 df[f"Layer {idx + 1}"] = pd.Series(layer_scores)
 
             df.to_excel(excel_writer="datasets/importance_scores.xlsx")
@@ -204,6 +216,11 @@ class TorchvisionWrapper(pl.LightningModule):
 
             kth_value, _ = scores.kthvalue(num_pruned_filters)
             kth_value = kth_value.item()
+
+            torch.save(
+                (scores_list, kth_value),
+                "datasets/importance_scores.pth",
+            )
 
             print("total_filters", total_filters)
             print("num_pruned_filters", num_pruned_filters)
@@ -232,7 +249,7 @@ class TorchvisionWrapper(pl.LightningModule):
             weight_decay=self.weight_decay,
         )
         lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=30
+            optimizer, T_max=60
         )
 
         return {

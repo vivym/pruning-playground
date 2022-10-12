@@ -1,0 +1,23 @@
+model:
+  class_path: pruning_playground.models.TorchvisionWrapper
+  init_args:
+    model_name: resnet50_gfi_ap
+    pretrained: True
+    learning_rate: 0.004
+    momentum: 0.9
+    weight_decay: 0.00002
+    norm_weight_decay: 0.0
+    label_smoothing: 0.1
+    pruning_ratio: 0.3
+    pruning_indices_path: "datasets/pruning_indices_resnet50_gfi_ap_0.3.pth"
+
+trainer:
+  logger:
+    - class_path: pruning_playground.utils.logger.WandbLogger
+      init_args:
+        project: pruning-playground
+        entity: ziyuan_c
+        name: ResNet50-M-GFI-AP
+        notes: "ResNet50-M GFI-AP"
+        tags: ["ResNet50-M", "GFI-AP"]
+        save_code: True

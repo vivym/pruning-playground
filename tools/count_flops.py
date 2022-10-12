@@ -37,7 +37,6 @@ def main():
 
     _, all_data = count_flops(
         model.model, torch.randn(1, 3, 224, 224),
-        # ignore_layers=["fc", "avgpool", "classifier_1"],
         verbose=True,
     )
     print(
