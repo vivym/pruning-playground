@@ -3,7 +3,7 @@ model:
   init_args:
     model_name: resnet50_gfi_ap
     pretrained: True
-    learning_rate: 0.004
+    learning_rate: 0.008
     momentum: 0.9
     weight_decay: 0.00002
     norm_weight_decay: 0.0
