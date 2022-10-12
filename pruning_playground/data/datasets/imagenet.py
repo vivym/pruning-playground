@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Optional
 
+import torch
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader
 from torch.utils.data.dataloader import default_collate
@@ -64,17 +65,26 @@ class ImageNet(pl.LightningDataModule):
             def collate_fn(batch):
                 return mixupcutmix(*default_collate(batch))
 
-        dataset = datasets.ImageFolder(
-            self.root_path / "train",
-            transform=ClassificationPresetTrain(
-                crop_size=self.train_crop_size,
-                interpolation=self.interpolation,
-                auto_augment_policy=self.auto_augment_policy,
-                random_erase_prob=self.random_erase_prob,
-                ra_magnitude=self.ra_magnitude,
-                augmix_severity=self.augmix_severity,
+        data_path = self.root_path / "train"
+
+        cache_path = _get_cache_path(data_path)
+        if cache_path.exists():
+            dataset = torch.load(cache_path)
+        else:
+            dataset = datasets.ImageFolder(
+                data_path,
+                transform=ClassificationPresetTrain(
+                    crop_size=self.train_crop_size,
+                    interpolation=self.interpolation,
+                    auto_augment_policy=self.auto_augment_policy,
+                    random_erase_prob=self.random_erase_prob,
+                    ra_magnitude=self.ra_magnitude,
+                    augmix_severity=self.augmix_severity,
+                )
             )
-        )
+
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            torch.save(dataset, cache_path)
 
         return DataLoader(
             dataset,
@@ -86,14 +96,23 @@ class ImageNet(pl.LightningDataModule):
         )
 
     def val_dataloader(self):
-        dataset = datasets.ImageFolder(
-            self.root_path / "val",
-            transform=ClassificationPresetEval(
-                crop_size=self.val_crop_size,
-                resize_size=self.val_resize_size,
-                interpolation=self.interpolation,
+        data_path = self.root_path / "val"
+
+        cache_path = _get_cache_path(data_path)
+        if cache_path.exists():
+            dataset = torch.load(cache_path)
+        else:
+            dataset = datasets.ImageFolder(
+                self.root_path / "val",
+                transform=ClassificationPresetEval(
+                    crop_size=self.val_crop_size,
+                    resize_size=self.val_resize_size,
+                    interpolation=self.interpolation,
+                )
             )
-        )
+
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            torch.save(dataset, cache_path)
 
         return DataLoader(
             dataset,
@@ -102,3 +121,13 @@ class ImageNet(pl.LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=True,
         )
+
+
+def _get_cache_path(data_path: Path) -> Path:
+    import hashlib
+
+    full_path = data_path.resolve()
+    h = hashlib.sha1(str(full_path).encode()).hexdigest()
+    cache_path = Path(f"~/.torch/vision/datasets/imagefolder/{h[:10]}.pth")
+    cache_path = cache_path.expanduser()
+    return cache_path
