@@ -17,6 +17,7 @@ def main():
     )
     parser.add_argument("--pruning-ratio", type=float, default=None)
     parser.add_argument("--pruning-indices-path", type=str, default=None)
+    parser.add_argument("--save", type=str, default=None)
     args = parser.parse_args()
 
     with open(args.config) as f:
@@ -45,8 +46,11 @@ def main():
         f"{tp.utils.count_params(model) / 1e6:.2f}MB",
     )
 
-    df = pd.DataFrame(all_data, columns=["Operation", "OPS", "#Params", "#Filters"])
-    df.to_excel("datasets/flops.xlsx")
+    if args.save is not None:
+        df = pd.DataFrame(
+            all_data, columns=["Operation", "OPS", "#Params", "#Filters"]
+        )
+        df.to_excel(args.save)
 
 
 if __name__ == "__main__":
