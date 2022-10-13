@@ -233,7 +233,7 @@ class TorchvisionWrapper(pl.LightningModule):
                 for scores in scores_list:
                     indices = (scores <= kth_value).nonzero(as_tuple=True)[0]
                     if indices.shape[0] / scores.shape[0] > rpf_ratio:
-                        rpf_threshold = scores.kthvalue(int(rpf_ratio * scores.shape[0]))
+                        rpf_threshold, _ = scores.kthvalue(int(rpf_ratio * scores.shape[0]))
                         indices = (scores <= rpf_threshold).nonzero(as_tuple=True)[0]
                     pruning_indices.append(indices.tolist())
 
