@@ -226,11 +226,17 @@ class TorchvisionWrapper(pl.LightningModule):
             print("num_pruned_filters", num_pruned_filters)
             print("threshold", kth_value)
 
+            rpf_ratio = self.pruning_ratio + (1 - self.pruning_ratio) / 2
+
             if self.pruning_indices_path is not None:
-                pruning_indices = [
-                    (scores <= kth_value).nonzero(as_tuple=True)[0].tolist()
-                    for scores in scores_list
-                ]
+                pruning_indices = []
+                for scores in scores_list:
+                    indices = (scores <= kth_value).nonzero(as_tuple=True)[0]
+                    if indices.shape[0] / scores.shape[0] > rpf_ratio:
+                        rpf_threshold = scores.kthvalue(int(rpf_ratio * scores.shape[0]))
+                        indices = (scores <= rpf_threshold).nonzero(as_tuple=True)[0]
+                    pruning_indices.append(indices.tolist())
+
                 torch.save(pruning_indices, self.pruning_indices_path)
 
     def forward(self, x):
