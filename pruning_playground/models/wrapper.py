@@ -28,7 +28,7 @@ class TorchvisionWrapper(pl.LightningModule):
         norm_weight_decay: float = 0.0,
         label_smoothing: float = 0.0,
         pruning_stage: bool = False,
-        use_correct_scores: bool = False,   # correct scores: from paper; wrong scores: from code
+        use_correct_scores: bool = True,   # correct scores: from paper; wrong scores: from code
         pruning_strategy: str = "None", # CustomIndices, Random
         pruning_ratio: float = 0.3,
         pruning_indices_path: Optional[str] = "datasets/pruning_indices.pth",
